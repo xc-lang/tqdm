@@ -1,10 +1,12 @@
+from array import array
 from ast import literal_eval
 from collections import defaultdict
+from io import BytesIO
 from typing import Union  # py<3.10
 
 from pytest import warns
 
-from tqdm.utils import envwrap
+from tqdm.utils import CallbackIOWrapper, envwrap
 
 
 def test_envwrap_deprecated(monkeypatch):
@@ -62,3 +64,28 @@ def test_envwrap_annotations(monkeypatch):
         return number, string
 
     assert 1.1, "1.1" == annotated()
+
+
+def test_callbackiowrapper_write_counts_bytes():
+    """wrapped write() must report bytes written, not data element count"""
+    stream = BytesIO()
+    counts = []
+    writer = CallbackIOWrapper(counts.append, stream, 'write')
+    # untyped memoryview: len(data) is the element count, not byte count
+    writer.write(memoryview(array('I', [1, 2, 3])))
+    assert [array('I').itemsize * 3] == counts
+    # byte-like data: reported count unchanged
+    writer.write(b'test')
+    assert [array('I').itemsize * 3, 4] == counts
+
+
+def test_callbackiowrapper_write_counts_fallback():
+    """streams returning None on write() fall back to len(data)"""
+    class NullStream:
+        def write(self, data):
+            return None
+
+    counts = []
+    writer = CallbackIOWrapper(counts.append, NullStream(), 'write')
+    writer.write(b'test')
+    assert [4] == counts
